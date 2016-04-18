@@ -17,18 +17,28 @@ class SnortRule:
     def __init__(self, signature):
         global rule_base
         global rule_count
-        temp_bytes = bytearray(signature)
+
+        self.sid = rule_base + rule_count
+        rule_count += 1
+        self.msg = "alert from rule {sid}".format(sid = self.sid)
+        self.dport = signature['UDP'].dport
+        self.sport = signature['UDP'].sport
+        if (self.dport > 1000) :
+            self.dport = 'any'
+        else:
+            self.sport = 'any'
+
+        temp_bytes = bytearray(signature.lastlayer().original)
         buff = '"|'
         for i in range(0,len(temp_bytes)):
             buff += int2hexstr(temp_bytes[i]) + ' '
         buff += '|"'
         self.text = buff
-        self.sid = rule_base + rule_count
-        rule_count += 1
-        self.msg = "message"
+
 
     def __str__(self):
-        return "alert udp any any -> any 161 (sid:{0}; content:{1}; msg:{2};)".format(self.sid, self.text, self.msg)
+        return "alert udp any {sport} -> any {dport} (sid:{sid}; content:{content}; msg:{msg};)".format(
+            sport = self.sport, dport=self.dport, sid = self.sid, content = self.text, msg = self.msg)
 
 
 def int2hexstr(integer):
@@ -39,22 +49,27 @@ def int2hexstr(integer):
 
 def get_snort_rules_from_pcap(pcap_file_name):
     packets = rdpcap(pcap_file_name)
-    payloads = [p.lastlayer().original for p in packets]
-    rules = [SnortRule(rule) for rule in payloads]
+    rules = [SnortRule(packet) for packet in packets]
     return rules
 
 
 def write_snort_file(snort_file_name, snort_rules):
     f = open(snort_file_name, 'w')
     snort_config = '''
-config alertfile: /home/osboxes/projects/filter/alert_file
+config alertfile: /home/osboxes/projects/FilterRulesGenerator/alert_file
 
-config logdir: /home/osboxes/projects/filter/log
+config logdir: /home/osboxes/projects/FilterRulesGenerator/log
 '''
     f.write(snort_config)
     snort_lines = [rule.__str__() + '\n' for rule in snort_rules]
     f.writelines(snort_lines)
 
+
+def send_pcap_packets(pcap_file_name):
+    packets = rdpcap(pcap_file_name)
+    payloads = [p.lastlayer().original for p in packets]
+    packets = [IP(dst='8.8.8.8') / UDP(sport=10000, dport=161) / payload for payload in payloads]
+    map(send, packets)
 
 if __name__ == "__main__":
     pcap_file_name = sys.argv[1]
